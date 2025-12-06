@@ -70,7 +70,7 @@ if os.path.exists(frontend_path):
 async def root():
     """Endpoint raíz - redirige al frontend"""
     if os.path.exists(frontend_path):
-        index_file = os.path.join(frontend_path, 'index_pro.html')
+        index_file = os.path.join(frontend_path, 'index.html')
         if os.path.exists(index_file):
             return FileResponse(index_file)
     return {

@@ -749,11 +749,11 @@
             // Logo icon based on device type (using actual logo images)
             let deviceIcon;
             if (isJoyCon) {
-                deviceIcon = `<img src="nintendo.png" alt="Nintendo" style="width: 32px; height: 32px; object-fit: contain; filter: brightness(0) invert(1);">`;
+                deviceIcon = `<img src="/frontend/nintendo.png" alt="Nintendo" style="width: 32px; height: 32px; object-fit: contain; filter: brightness(0) invert(1);">`;
             } else if (isPlayStation) {
-                deviceIcon = `<img src="PlayStation-Logo.wine.png" alt="PlayStation" style="width: 36px; height: 36px; object-fit: contain;">`;
+                deviceIcon = `<img src="/frontend/PlayStation-Logo.wine.png" alt="PlayStation" style="width: 36px; height: 36px; object-fit: contain;">`;
             } else if (isXbox) {
-                deviceIcon = `<img src="Xbox_one_logo.svg.png" alt="Xbox" style="width: 32px; height: 32px; object-fit: contain;">`;
+                deviceIcon = `<img src="/frontend/Xbox_one_logo.svg.png" alt="Xbox" style="width: 32px; height: 32px; object-fit: contain;">`;
             } else {
                 deviceIcon = '🎮';
             }
