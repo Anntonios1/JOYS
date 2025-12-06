@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gamepad Monitor Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        .battery-ring {
+            transition: stroke-dashoffset 0.5s ease;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .charging-indicator {
+            animation: pulse 2s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="text-4xl font-bold mb-2">🎮 Gamepad Monitor</h1>
+            <p class="text-gray-400">Monitoreo en tiempo real de controladores</p>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="text-center py-12">
+            <div class="text-6xl mb-4">⏳</div>
+            <p class="text-2xl text-gray-400">Cargando dispositivos...</p>
+        </div>
+
+        <!-- Error -->
+        <div id="error" class="hidden bg-red-900/50 border border-red-500 rounded-lg p-4 mb-4">
+            <p id="errorMessage" class="text-red-200"></p>
+        </div>
+
+        <!-- Content -->
+        <div id="content" class="hidden">
+            <!-- Stats -->
+            <div id="stats" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8"></div>
+
+            <!-- Devices Grid -->
+            <div id="devicesGrid" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let devices = [];
+        let refreshInterval = null;
+        let fullDataLoaded = false;
+
+        // Inicializar
+        async function init() {
+            await loadDevices();
+            refreshInterval = setInterval(loadDevices, 10000);
+        }
+
+        // Cargar dispositivos
+        async function loadDevices() {
+            try {
+                console.log('Loading devices...');
+                const response = await fetch(`${API_BASE}/api/devices`);
+                const devicesList = await response.json();
+                console.log('Devices found:', devicesList.length);
+
+                // Obtener info completa de cada dispositivo
+                const enrichedDevices = await Promise.all(
+                    devicesList.map(async (device) => {
+                        const deviceId = device.id;
+                        console.log(`Fetching info for ${deviceId}...`);
+                        try {
+                            const infoResponse = await fetch(`${API_BASE}/api/device/${deviceId}`);
+                            if (infoResponse.ok) {
+                                const fullInfo = await infoResponse.json();
+                                console.log(`Info received for ${deviceId}`);
+                                // Adaptar estructura para el frontend
+                                return {
+                                    id: fullInfo.id,
+                                    type: fullInfo.type.toLowerCase().includes('joy-con') ? 'joycon' : 
+                                          fullInfo.type.toLowerCase().includes('dualshock') ? 'ds4' : 'other',
+                                    name: fullInfo.name,
+                                    battery: fullInfo.battery.percentage,
+                                    battery_voltage: fullInfo.battery.voltage,
+                                    battery_level: fullInfo.battery.level_name,
+                                    charging: fullInfo.battery.charging,
+                                    polling_rate_hz: fullInfo.polling?.rate_hz || 0,
+                                    polling_interval_ms: fullInfo.polling?.interval_ms || 0,
+                                    serial: fullInfo.serial_number,
+                                    firmware: fullInfo.firmware_version,
+                                    colors: fullInfo.colors,
+                                    side: device.side,
+                                    product_id: device.side === 'Left' ? 8198 : 8199,
+                                    connection_type: fullInfo.connection_type,
+                                    mac_address: fullInfo.serial_number || deviceId
+                                };
+                            }
+                        } catch (error) {
+                            console.error(`Error loading info for ${deviceId}:`, error);
+                        }
+                        return null;
+                    })
+                );
+                
+                devices = enrichedDevices.filter(d => d !== null);
+                fullDataLoaded = true;
+                console.log('Full data loaded:', devices.length)
+
+                renderAll();
+            } catch (error) {
+                console.error('Error loading devices:', error);
+                showError('Error al cargar dispositivos');
+            }
+        }
+
+        // Renderizar todo
+        function renderAll() {
+            hideLoading();
+            renderStats();
+            renderDevices();
+        }
+
+        // Renderizar estadísticas
+        function renderStats() {
+            const joycons = devices.filter(d => d.type === 'joycon').length;
+            const ds4 = devices.filter(d => d.type === 'ds4').length;
+            const xbox = devices.filter(d => d.type === 'other').length;
+            const avgBattery = devices.reduce((sum, d) => sum + (d.battery || 0), 0) / devices.length || 0;
+
+            document.getElementById('stats').innerHTML = `
+                <div class="bg-blue-900/50 backdrop-blur rounded-xl p-4">
+                    <div class="text-3xl font-bold">${devices.length}</div>
+                    <div class="text-gray-300">Dispositivos</div>
+                </div>
+                <div class="bg-purple-900/50 backdrop-blur rounded-xl p-4">
+                    <div class="text-3xl font-bold">${joycons}</div>
+                    <div class="text-gray-300">Joy-Cons</div>
+                </div>
+                <div class="bg-pink-900/50 backdrop-blur rounded-xl p-4">
+                    <div class="text-3xl font-bold">${ds4}</div>
+                    <div class="text-gray-300">DualShock 4</div>
+                </div>
+                <div class="bg-green-900/50 backdrop-blur rounded-xl p-4">
+                    <div class="text-3xl font-bold">${Math.round(avgBattery)}%</div>
+                    <div class="text-gray-300">Batería Promedio</div>
+                </div>
+            `;
+        }
+
+        // Renderizar dispositivos
+        function renderDevices() {
+            const grid = document.getElementById('devicesGrid');
+
+            if (devices.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full text-center py-12">
+                        <div class="text-6xl mb-4">🎮</div>
+                        <p class="text-2xl text-gray-400">No hay dispositivos conectados</p>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = devices.map(device => {
+                if (device.type === 'joycon') {
+                    return renderJoyConCard(device);
+                } else if (device.type === 'ds4') {
+                    return renderDS4Card(device);
+                }
+                return '';
+            }).join('');
+            
+            // Load battery charts for all devices after DOM is updated
+            setTimeout(() => {
+                devices.forEach(device => {
+                    const macAddress = device.mac_address || device.serial || device.path;
+                    if (macAddress) {
+                        loadBatteryChart(macAddress);
+                    }
+                });
+            }, 200);
+        }
+
+        // Renderizar tarjeta Joy-Con
+        function renderJoyConCard(device) {
+            const isLeft = device.product_id === 8198;
+            const side = isLeft ? 'L' : 'R';
+            const bodyColor = device.colors?.body?.hex || '#808080';
+            const buttonColor = device.colors?.buttons?.hex || '#404040';
+            const battery = device.battery || 0;
+            const batteryVoltage = device.battery_voltage || 0;
+            const charging = device.charging || false;
+            const pollingRate = device.polling_rate_hz || 0;
+            const pollingInterval = device.polling_interval_ms || 0;
+            const chartId = `chart-${device.mac_address}`;
+
+            return `
+                <div class="rounded-xl p-6 shadow-xl" style="background: linear-gradient(135deg, ${bodyColor}dd 0%, ${bodyColor}99 50%, ${bodyColor}66 100%);">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-3">
+                            <div class="text-4xl">🎮</div>
+                            <div>
+                                <h3 class="text-xl font-bold text-white">Joy-Con (${side})</h3>
+                                <p class="text-sm text-gray-200">${device.serial || 'N/A'}</p>
+                            </div>
+                        </div>
+                        <div class="relative w-20 h-20">
+                            <svg class="transform -rotate-90" width="80" height="80">
+                                <circle cx="40" cy="40" r="30" stroke="rgba(255,255,255,0.3)" stroke-width="8" fill="none"/>
+                                <circle cx="40" cy="40" r="30" stroke="${battery >= 75 ? '#10b981' : battery >= 25 ? '#fbbf24' : '#ef4444'}"
+                                        stroke-width="8" fill="none" stroke-dasharray="188.5" 
+                                        stroke-dashoffset="${188.5 - (188.5 * battery / 100)}" 
+                                        class="battery-ring"/>
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <span class="text-lg font-bold text-white">${battery}%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3 mb-4">
+                        <div class="flex items-center gap-2">
+                            <span class="text-gray-200">Color:</span>
+                            <div style="background-color: ${bodyColor};" class="w-6 h-6 rounded-full border-2 border-white shadow-lg"></div>
+                            <div style="background-color: ${buttonColor};" class="w-6 h-6 rounded-full border-2 border-white shadow-lg"></div>
+                        </div>
+                        ${batteryVoltage > 0 ? `
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-200">Voltaje:</span>
+                            <span class="text-yellow-300 font-semibold">${batteryVoltage.toFixed(2)}V</span>
+                        </div>
+                        ` : ''}
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-200">Firmware:</span>
+                            <span class="text-white">${device.firmware || 'N/A'}</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-200">Serial:</span>
+                            <span class="text-white">${device.serial || 'N/A'}</span>
+                        </div>
+                        ${pollingRate > 0 ? `
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-200">Polling Rate:</span>
+                            <span class="text-green-300 font-semibold">${pollingRate.toFixed(1)} Hz</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-200">Intervalo:</span>
+                            <span class="text-blue-300 font-semibold">${pollingInterval.toFixed(2)} ms</span>
+                        </div>
+                        ` : ''}
+                        ${device.battery_stats?.drain_rate ? `
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-200">Consumo:</span>
+                            <span class="text-orange-300 font-semibold">${device.battery_stats.drain_rate.toFixed(2)}%/h</span>
+                        </div>
+                        ` : ''}
+                        ${device.battery_stats?.current_session ? `
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-200">Sesión actual:</span>
+                            <span class="text-cyan-300 font-semibold">${device.battery_stats.current_session.duration_hours.toFixed(1)}h</span>
+                        </div>
+                        ` : ''}
+                        ${charging ? '<div class="text-yellow-300 charging-indicator">⚡ Cargando</div>' : ''}
+                    </div>
+                    
+                    <!-- Botones -->
+                    <div class="flex gap-2 mb-3">
+                        <button onclick="disconnectDevice('${device.id}')" 
+                                class="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-semibold">
+                            🔌 Desconectar
+                        </button>
+                        <button onclick="vibrateDevice('${device.id}')" 
+                                class="flex-1 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-semibold">
+                            📳 Vibrar
+                        </button>
+                    </div>
+                    
+                    <!-- Battery History Chart -->
+                    <div class="bg-gray-800 rounded-lg p-3 mt-3">
+                        <h4 class="text-sm font-semibold mb-2 text-gray-300">Historial de Batería</h4>
+                        <div style="position: relative; height: 150px;">
+                            <canvas id="${chartId}"></canvas>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Renderizar tarjeta DS4
+        function renderDS4Card(device) {
+            const battery = device.battery || 0;
+            const charging = device.charging || false;
+            const pollingRate = device.polling_rate_hz || 0;
+            const pollingInterval = device.polling_interval_ms || 0;
+            const chartId = `chart-${device.mac_address}`;
+
+            return `
+                <div class="bg-gradient-to-br from-blue-900 to-gray-900 rounded-xl p-6 shadow-xl">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-3">
+                            <div class="text-4xl">🎮</div>
+                            <div>
+                                <h3 class="text-xl font-bold">DualShock 4</h3>
+                                <p class="text-sm text-gray-400">${device.serial || 'N/A'}</p>
+                            </div>
+                        </div>
+                        <div class="relative w-20 h-20">
+                            <svg class="transform -rotate-90" width="80" height="80">
+                                <circle cx="40" cy="40" r="30" stroke="#374151" stroke-width="8" fill="none"/>
+                                <circle cx="40" cy="40" r="30" stroke="${battery >= 75 ? '#10b981' : battery >= 25 ? '#fbbf24' : '#ef4444'}"
+                                        stroke-width="8" fill="none" stroke-dasharray="188.5" 
+                                        stroke-dashoffset="${188.5 - (188.5 * battery / 100)}" 
+                                        class="battery-ring"/>
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <span class="text-lg font-bold">${battery}%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3 mb-4">
+                        ${device.connection_type ? `
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-400">Conexión:</span>
+                            <span class="text-purple-400">${device.connection_type}</span>
+                        </div>
+                        ` : ''}
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-400">Serial:</span>
+                            <span>${device.serial || 'N/A'}</span>
+                        </div>
+                        ${pollingRate > 0 ? `
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-400">Polling Rate:</span>
+                            <span class="text-green-400">${pollingRate.toFixed(1)} Hz</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-400">Intervalo:</span>
+                            <span class="text-blue-400">${pollingInterval.toFixed(2)} ms</span>
+                        </div>
+                        ` : ''}
+                        ${device.battery_stats?.drain_rate ? `
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-400">Consumo:</span>
+                            <span class="text-orange-400">${device.battery_stats.drain_rate.toFixed(2)}%/h</span>
+                        </div>
+                        ` : ''}
+                        ${device.battery_stats?.current_session ? `
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-400">Sesión actual:</span>
+                            <span class="text-cyan-400">${device.battery_stats.current_session.duration_hours.toFixed(1)}h</span>
+                        </div>
+                        ` : ''}
+                        ${charging ? '<div class="text-yellow-400 charging-indicator">⚡ Cargando</div>' : ''}
+                    </div>
+                    
+                    <!-- Battery History Chart -->
+                    <div class="bg-gray-800 rounded-lg p-3 mt-3">
+                        <h4 class="text-sm font-semibold mb-2 text-gray-300">Historial de Batería</h4>
+                        <div style="position: relative; height: 150px;">
+                            <canvas id="${chartId}"></canvas>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Store for charts
+        const batteryCharts = {};
+
+        // Load and render battery history chart
+        async function loadBatteryChart(macAddress) {
+            // TODO: Implementar historial con nueva API
+            // Por ahora solo mostramos el valor actual
+            const chartId = `chart-${macAddress}`;
+            const canvas = document.getElementById(chartId);
+            if (!canvas) return;
+            
+            const device = devices.find(d => d.mac_address === macAddress);
+            const ctx = canvas.getContext('2d');
+            
+            if (batteryCharts[macAddress]) {
+                batteryCharts[macAddress].destroy();
+            }
+            
+            batteryCharts[macAddress] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Actual'],
+                    datasets: [{
+                        label: 'Batería (%)',
+                        data: [device?.battery?.percentage || 0],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                        borderWidth: 2,
+                        pointRadius: 6,
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: { color: '#9ca3af' },
+                            grid: { color: 'rgba(75, 85, 99, 0.3)' }
+                        },
+                        x: {
+                            ticks: { color: '#9ca3af' },
+                            grid: { color: 'rgba(75, 85, 99, 0.3)' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        title: {
+                            display: true,
+                            text: 'Nivel actual',
+                            color: '#9ca3af',
+                            font: { size: 11 }
+                        }
+                    }
+                }
+            });
+            return;
+            /* CÓDIGO ANTIGUO COMENTADO
+            try {
+                console.log(`Loading chart for ${macAddress}...`);
+                const response = await fetch(`${API_BASE}/history/${macAddress}?data_type=battery`);
+                if (!response.ok) {
+                    console.log(`Chart API error for ${macAddress}: ${response.status}`);
+                    return;
+                }
+                
+                const data = await response.json();
+                const batteryData = data.battery || [];
+                
+                console.log(`Battery data for ${macAddress}: ${batteryData.length} records`);
+                
+                if (batteryData.length === 0) {
+                    console.log(`No battery history for ${macAddress}`);
+                    return;
+                }
+
+                const chartId = `chart-${macAddress}`;
+                const canvas = document.getElementById(chartId);
+                if (!canvas) {
+                    console.log(`Canvas ${chartId} not found`);
+                    return;
+                }
+
+                console.log(`Creating chart for ${macAddress}...`);
+
+                // Destroy existing chart if any
+                if (batteryCharts[macAddress]) {
+                    batteryCharts[macAddress].destroy();
+                }
+
+                // Prepare data - Sort by timestamp and format
+                const sortedData = batteryData.sort((a, b) => 
+                    new Date(a.timestamp) - new Date(b.timestamp)
+                );
+                
+                const labels = sortedData.map(d => {
+                    const date = new Date(d.timestamp);
+                    return date.toLocaleTimeString('es-ES', { 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        hour12: false 
+                    });
+                });
+                
+                const percentages = sortedData.map(d => d.percentage);
+                const chargingStates = sortedData.map(d => d.charging);
+
+                // Get time range for title
+                const firstTime = new Date(sortedData[0].timestamp);
+                const lastTime = new Date(sortedData[sortedData.length - 1].timestamp);
+                const timeRange = `${firstTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} - ${lastTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`;
+
+                // Create chart
+                const ctx = canvas.getContext('2d');
+                batteryCharts[macAddress] = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Batería (%)',
+                            data: percentages,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                            borderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            pointBackgroundColor: percentages.map((p, i) => 
+                                chargingStates[i] ? '#fbbf24' : '#10b981'
+                            ),
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            title: {
+                                display: true,
+                                text: timeRange,
+                                color: '#9ca3af',
+                                font: {
+                                    size: 11,
+                                    weight: 'normal'
+                                },
+                                padding: {
+                                    top: 0,
+                                    bottom: 5
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(17, 24, 39, 0.95)',
+                                titleColor: '#fff',
+                                bodyColor: '#fff',
+                                borderColor: '#374151',
+                                borderWidth: 1,
+                                padding: 10,
+                                displayColors: false,
+                                callbacks: {
+                                    label: function(context) {
+                                        const charging = chargingStates[context.dataIndex];
+                                        const status = charging ? ' ⚡ Cargando' : ' 🔋 Batería';
+                                        return `${context.parsed.y}%${status}`;
+                                    },
+                                    title: function(context) {
+                                        const idx = context[0].dataIndex;
+                                        const date = new Date(sortedData[idx].timestamp);
+                                        return date.toLocaleString('es-ES', {
+                                            weekday: 'short',
+                                            day: 'numeric',
+                                            month: 'short',
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                            second: '2-digit'
+                                        });
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                display: true,
+                                ticks: {
+                                    color: '#9ca3af',
+                                    maxRotation: 0,
+                                    minRotation: 0,
+                                    autoSkip: true,
+                                    maxTicksLimit: 8,
+                                    font: {
+                                        size: 10
+                                    }
+                                },
+                                grid: {
+                                    color: 'rgba(75, 85, 99, 0.2)',
+                                    drawBorder: false
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                min: 0,
+                                max: 100,
+                                ticks: {
+                                    color: '#9ca3af',
+                                    stepSize: 25,
+                                    font: {
+                                        size: 10
+                                    },
+                                    callback: function(value) {
+                                        return value + '%';
+                                    }
+                                },
+                                grid: {
+                                    color: 'rgba(75, 85, 99, 0.3)'
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Error loading battery chart:', error);
+            }
+            */
+        }
+
+        // Desconectar dispositivo
+        async function disconnectDevice(deviceId) {
+            if (!confirm('¿Estás seguro de desconectar este Joy-Con?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/device/${deviceId}/disconnect`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    showSuccess('Joy-Con desconectado');
+                    // Recargar dispositivos después de 1 segundo
+                    setTimeout(loadDevices, 1000);
+                } else {
+                    const error = await response.json();
+                    showError(error.detail || 'Error al desconectar');
+                }
+            } catch (error) {
+                console.error('Error disconnecting device:', error);
+                showError('Error al desconectar dispositivo');
+            }
+        }
+
+        // Vibrar dispositivo
+        async function vibrateDevice(deviceId) {
+            try {
+                const response = await fetch(`${API_BASE}/api/device/${deviceId}/vibrate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        duration: 1.0,
+                        intensity: 0.7
+                    })
+                });
+                
+                if (response.ok) {
+                    showSuccess('Vibrando...');
+                } else {
+                    const error = await response.json();
+                    showError(error.detail || 'Error al vibrar');
+                }
+            } catch (error) {
+                console.error('Error vibrating device:', error);
+                showError('Error al vibrar dispositivo');
+            }
+        }
+
+        // Utilidades
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('content').classList.remove('hidden');
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('error').classList.remove('hidden');
+        }
+
+        // Iniciar
+        init();
+    </script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# Requirements para el empaquetado con PyInstaller
+# Instalar con: pip install -r requirements_build.txt
+
+# GUI
+PyQt6==6.6.1
+PyQt6-Qt6==6.6.1
+PyQt6-sip==13.6.0
+
+# Backend API
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# HID y Bluetooth
+hidapi==0.14.0
+pythonnet==3.0.3
+
+# Empaquetado
+pyinstaller==6.3.0
+
+# Base de datos
+# (sqlite3 viene incluido en Python)

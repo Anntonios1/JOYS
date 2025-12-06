@@ -1,0 +1,46 @@
+backend/__pycache__/
+api/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Docker
+.dockerignore
+
+# Node (if using npm)
+node_modules/
+package-lock.json

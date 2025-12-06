@@ -1,0 +1,6 @@
+# Gamepad Monitor Overlay - Dependencies
+PyQt6>=6.4.0
+aiohttp>=3.8.0
+keyboard>=0.13.5  # Opcional - para hotkeys globales
+pygame>=2.5.0     # Para sonidos de conexión
+winsdk>=1.0.0     # Para escaneo y emparejamiento Bluetooth real (Windows 10/11)

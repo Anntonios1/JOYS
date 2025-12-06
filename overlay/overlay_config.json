@@ -1,0 +1,13 @@
+{
+  "show_color_bar": true,
+  "show_notifications": true,
+  "show_graphs": true,
+  "toggle_button": "Capture",
+  "toggle_enabled": false,
+  "position": {
+    "x": 288,
+    "y": 143
+  },
+  "locked": false,
+  "toggle_device": "any"
+}
